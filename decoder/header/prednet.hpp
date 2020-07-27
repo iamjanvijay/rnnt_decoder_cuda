@@ -24,7 +24,10 @@ namespace s2t
 			sys::embedding_table embed_t;
 			sys::dlstm lstm_t;
 
-			DLSTMState state[2];
+			DLSTMState state_buffer[hparams::gpu_states_buffer_size];
+			int next_free_state[hparams::gpu_states_buffer_size];
+			int state_use_count[hparams::gpu_states_buffer_size];
+			int first_free_state_idx;
 				
 			gpu_float_array var1;
 			gpu_float_array var2;
@@ -33,10 +36,10 @@ namespace s2t
 			noCopy(prednet);
 			prednet();  
 			void init(cudnnHandle_t& cudnn, const std::string& base_model_path);  // initialize the prednet
-			void reset_input_state();
-			void load_input_state(float* h_cell_state_h, float* h_cell_state_c);
-			void get_output_state(float** h_cell_state_h, float** h_cell_state_c);
-			void operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, bool reverse = false);
+			void free_state(int idx);
+			void reuse_state(int idx);
+			int get_zerod_state();
+			int operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, bool save_state = true);
 			~prednet();  // free all resources
 		};
 	}

@@ -126,6 +126,7 @@ decoder::decoder(size_t p_vocab_size, size_t p_blank_index)
     // initialise the cpu variables
     {
         log_probs = (float*) malloc(hparams::joint_net_logit_size * sizeof(float));
+        zeroed_dlsm_state_idx = prednet1.get_zerod_state();
     }
 }
 
@@ -135,21 +136,16 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
     size_t acoustic_time_steps = encoder_features.shape[0]; // T * 700 file
 
     // b_heap related data structures
-    vector<pair<float*, float*>> next_hiddens;
     vector<data_tuple> data_b;
     priority_queue<pair<float, int>, vector<pair<float, int>>, min_first> b_heap;
 
     // a_heap realted data structures
-    vector<pair<float*, float*>> cur_hiddens; // pointer to h_state, c_state
-    vector<bool> is_cur_hidden_useful;
     vector<data_tuple> data_a;
     priority_queue<pair<float, int>, vector<pair<float, int>>, min_first> a_heap;
 
     // initialse b_heap related data structures before t=0
-    float* init_cell_state_h = (float*) calloc(hparams::pred_net_state_h_size * hparams::pred_net_lstm_layers, sizeof(float));
-    float* init_cell_state_c = (float*) calloc(hparams::pred_net_state_c_size * hparams::pred_net_lstm_layers, sizeof(float));
-    next_hiddens.push_back(make_pair(init_cell_state_h, init_cell_state_c));
-    data_tuple init_data_tuple = {"", 0.f, blank_index, 0, {blank_index}};
+    data_tuple init_data_tuple = {"", 0.f, blank_index, zeroed_dlsm_state_idx /* hidden index */, {blank_index}};
+    prednet1.reuse_state(zeroed_dlsm_state_idx);
     data_b.push_back(init_data_tuple);
     b_heap.push(make_pair(0.f, 0));
 
@@ -164,15 +160,10 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
 
         // delete all for a_heap; 
         {
-            // for(int i=0; i<cur_hiddens.size(); i++)
-            // {
-            //     if(is_cur_hidden_useful[i])
-            //         continue;
-            //     free(cur_hiddens[i].first);
-            //     free(cur_hiddens[i].second);
-            // }
-            cur_hiddens.clear();
-            is_cur_hidden_useful.clear();
+            for(int i=0; i<data_a.size(); ++i)
+            {
+                prednet1.free_state(data_a[i].hidden_idx);
+            }
             data_a.clear();
             while(a_heap.size()) // reset it
             {
@@ -182,7 +173,6 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
 
         // put all data from b_heap in to a_heap and initialise empty b_heap;
         {
-            cur_hiddens = next_hiddens;
             data_a = data_b;
             while(b_heap.size())
             {
@@ -191,11 +181,6 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
                 a_heap.push(log_prob_data_idx_pair);
                 b_heap.pop();
             }
-            for(int i=0; i<cur_hiddens.size(); i++)
-            {
-                is_cur_hidden_useful.push_back(false);
-            }
-            next_hiddens.clear();
             data_b.clear();
         }
 
@@ -211,29 +196,23 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
         {
             // compute next set of log probablities by calling lm and joint net
             size_t input_symbol = data_a[top_id_data_a].last_decoded_sid;
-            pair<float*, float*> prev_states = cur_hiddens[data_a[top_id_data_a].hidden_idx];
 
             // calls to jointnet and prednet
-            prednet1.load_input_state(prev_states.first, prev_states.second);
-            prednet1(cudnn, input_symbol, prednet_out);
+            int output_state_idx = prednet1(cudnn, input_symbol, prednet_out, data_a[top_id_data_a].hidden_idx);
             decoder_concat<<<1, 1024>>>(700, 700, enc_pred_concated.ptr, prednet_out.ptr); 
             jointnet1(cudnn, enc_pred_concated, jointnet_out);
 
-            // loading state and log_probs in float array
-            float* h_cell_state_h = (float*) malloc(hparams::pred_net_state_h_size * hparams::pred_net_lstm_layers * sizeof(float));
-            float* h_cell_state_c = (float*) malloc(hparams::pred_net_state_c_size * hparams::pred_net_lstm_layers * sizeof(float));
-            prednet1.get_output_state(&h_cell_state_h, &h_cell_state_c);
+            // loading log_probs in float array
             size_t log_probs_N = jointnet_out.data_at_host(&log_probs);
 
             // add blank transition to B
             if(top_log_prob_a+log_probs[blank_index] > bmszth_top_log_prob_b && !trie.insert_and_check(data_a[top_id_data_a].beam_sids)) // and not already in trie:
             {
-                data_tuple next_data_tuple = {data_a[top_id_data_a].beam_string, top_log_prob_a + log_probs[blank_index], data_a[top_id_data_a].last_decoded_sid, next_hiddens.size(), data_a[top_id_data_a].beam_sids};
-    
+                data_tuple next_data_tuple = {data_a[top_id_data_a].beam_string, top_log_prob_a + log_probs[blank_index], data_a[top_id_data_a].last_decoded_sid, data_a[top_id_data_a].hidden_idx, data_a[top_id_data_a].beam_sids};
+                prednet1.reuse_state(data_a[top_id_data_a].hidden_idx);
+
                 b_heap.push(make_pair(next_data_tuple.log_prob, data_b.size()));
                 data_b.push_back(next_data_tuple);
-                next_hiddens.push_back(cur_hiddens[data_a[top_id_data_a].hidden_idx]);
-                is_cur_hidden_useful[data_a[top_id_data_a].hidden_idx] = true;
 
                 if(b_heap.size()==beamsize+1)
                 {
@@ -252,14 +231,13 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
                 if(i==blank_index || top_log_prob_a+log_probs[i] <= bmszth_top_log_prob_b)
                     continue;
 
-                data_tuple next_data_tuple = {data_a[top_id_data_a].beam_string + subword_map[i], top_log_prob_a + log_probs[i], size_t(i), int(cur_hiddens.size()), data_a[top_id_data_a].beam_sids};
+                data_tuple next_data_tuple = {data_a[top_id_data_a].beam_string + subword_map[i], top_log_prob_a + log_probs[i], size_t(i), output_state_idx, data_a[top_id_data_a].beam_sids};
+                prednet1.reuse_state(output_state_idx);
                 next_data_tuple.beam_sids.push_back(i);
 
                 a_heap.push(make_pair(-next_data_tuple.log_prob, data_a.size()));
                 data_a.push_back(next_data_tuple);
             }
-            cur_hiddens.push_back(make_pair(h_cell_state_h, h_cell_state_c));
-            is_cur_hidden_useful.push_back(false);  
 
             // update top_id_data_a and top_log_prob_a
             top_log_prob_a = -numeric_limits<float>::infinity(); 
@@ -273,18 +251,11 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
         }
     }
 
-    // dealloc all hiddens floats and log_prob
-    // for(int i=0; i<cur_hiddens.size(); i++)
-    // {
-    //     free(cur_hiddens[i].first);
-    //     free(cur_hiddens[i].second);
-    // }
-    // for(int i=0; i<next_hiddens.size(); i++)
-    // {
-    //     free(next_hiddens[i].first);
-    //     free(next_hiddens[i].second);
-    // }
-    // cout << "Deallocated hiddens and log_prob!" << endl;
+    // dealloc all hiddens floats
+    for(int i=0; i<data_a.size(); ++i)
+        prednet1.free_state(data_a[i].hidden_idx);
+    for(int i=0; i<data_b.size(); ++i)
+        prednet1.free_state(data_b[i].hidden_idx);
 
     // write to beams_and_logprobs_out
     while(b_heap.size())

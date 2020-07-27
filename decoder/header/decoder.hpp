@@ -74,6 +74,7 @@ namespace s2t
 
             // cpu variables used while decoding
             float* log_probs;
+            int zeroed_dlsm_state_idx;
 
         public:
             decoder(size_t p_vocab_size, size_t p_blank_index);  

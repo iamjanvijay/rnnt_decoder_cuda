@@ -33,7 +33,10 @@ void testprednet(cudnnHandle_t& cudnn)
 
 	gpu_float_array output;
 	output.init(hparams::max_input_size, 700);
-	prednet1(cudnn, input_symbol, output);	
+	int input_state_idx = prednet1.get_zerod_state();
+	prednet1.reuse_state(input_state_idx);
+	prednet1(cudnn, input_symbol, output, input_state_idx, false /*save_state*/);	
+	prednet1.free_state(input_state_idx);
 
 	string filename = "cpp_prednet_output.npy";
 	log_e("pred net output", output.log(filename));
@@ -68,7 +71,7 @@ void testjointnet(cudnnHandle_t& cudnn)
 void testdecoder()
 {
 	const string encoder_features_file = hparams::base_input_folder + "encoder_features.npy";
-	size_t beamsize = 1000;
+	size_t beamsize = 100;
 	size_t vocab_size = 301;
 	size_t blank_index = 300;
 	decoder decoder1(vocab_size, blank_index);

@@ -7,14 +7,15 @@
 #include<vector>
 #include<string>
 #include<logger.hpp>
-// #include<utils.hpp>
 
 using namespace s2t::decodernet;
 using namespace s2t::common;
 using namespace std;
 
 prednet::prednet()
-{}
+{
+
+}
 
 void prednet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
 {
@@ -35,14 +36,8 @@ void prednet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
 		auto kernel_weight_0 = cnpy::npy_load(hparams::pred_net_lstm_0_kernel); 
 		auto bias_weight_0 = cnpy::npy_load(hparams::pred_net_lstm_0_bias); 
 
-		// cnpy::npy_save("cpp_kernel_0.npy", kernel_weight_0.as_vec<float>());
-		// cnpy::npy_save("cpp_bias_0.npy", bias_weight_0.as_vec<float>());
-
 		auto kernel_weight_1 = cnpy::npy_load(hparams::pred_net_lstm_1_kernel); 
 		auto bias_weight_1= cnpy::npy_load(hparams::pred_net_lstm_1_bias); 
-
-		// cnpy::npy_save("cpp_kernel_1.npy", kernel_weight_1.as_vec<float>());
-		// cnpy::npy_save("cpp_bias_1.npy", bias_weight_1.as_vec<float>());
 
 		kernel_weight_0.merge(kernel_weight_1);
 		bias_weight_0.merge(bias_weight_1);
@@ -53,78 +48,78 @@ void prednet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
 	}
 
 	// initialize DLSTM state
-	for(size_t i=0;i<2;i++)
+	for(size_t i=0; i<hparams::gpu_states_buffer_size; ++i)
 	{
-		state[i].cell_state_h.init(hparams::pred_net_lstm_layers, lstm_hidden_size);
-		state[i].cell_state_c.init(hparams::pred_net_lstm_layers, lstm_hidden_size);
-		
-		state[i].cell_state_h.reset();
-		state[i].cell_state_c.reset();		
+		state_buffer[i].cell_state_h.init(hparams::pred_net_lstm_layers, lstm_hidden_size);
+		state_buffer[i].cell_state_c.init(hparams::pred_net_lstm_layers, lstm_hidden_size);
+		state_buffer[i].cell_state_h.reset();
+		state_buffer[i].cell_state_c.reset();		
 
+		next_free_state[i] = i+1;
 	}
+	first_free_state_idx = 0;
 
 	// intitlaize gpu variables
 	{
 		var1.init(hparams::max_input_size, embedding_sz);
-		var2.init(hparams::max_input_size, embedding_sz);
 	}	
 }
 
-void prednet::reset_input_state()
+int prednet::get_zerod_state()
 {
-	size_t oldSI = 0;
-	state[oldSI].cell_state_h.reset();
-	state[oldSI].cell_state_c.reset();	
+	assert(first_free_state_idx!=hparams::gpu_states_buffer_size && "Increase DLSTM buffer state size!");
+
+	int state_return_idx = first_free_state_idx;
+	state_buffer[first_free_state_idx].cell_state_h.reset();
+	state_buffer[first_free_state_idx].cell_state_c.reset();	
+	state_use_count[first_free_state_idx] = 0;
+	first_free_state_idx = next_free_state[first_free_state_idx];
+	return state_return_idx;
 }
 
-void prednet::load_input_state(float* h_cell_state_h, float* h_cell_state_c)
+void prednet::free_state(int idx)
 {
-	size_t oldSI = 0;
-	state[oldSI].cell_state_h.copy(h_cell_state_h, hparams::pred_net_lstm_layers * hparams::pred_net_state_h_size);
-	state[oldSI].cell_state_c.copy(h_cell_state_c, hparams::pred_net_lstm_layers * hparams::pred_net_state_c_size);
+	--state_use_count[idx];
+	if(state_use_count[idx]<=0)
+	{
+		next_free_state[idx] = first_free_state_idx;
+		first_free_state_idx = idx;
+	}
 }
 
-void prednet::get_output_state(float** h_cell_state_h, float** h_cell_state_c)
+void prednet::reuse_state(int idx)
 {
-	// assumes that params have already been allocated sufficient memory
-	size_t newSI = 1; 
-	size_t state_h_N = state[newSI].cell_state_h.data_at_host(h_cell_state_h);
-	size_t state_c_N = state[newSI].cell_state_c.data_at_host(h_cell_state_c);
+	++state_use_count[idx];
 }
 
-void prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, bool reverse)
+int prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, bool save_state)
 {
+	assert(first_free_state_idx!=hparams::gpu_states_buffer_size && "Increase DLSTM buffer state size!");
+
 	// reset and reshape the Vars based on input size
 	var1.reset();
 	var1.reshape(1, var1.shape[1]);
 
-	// var2.reset();
-	// var2.reshape(seq.size(), var1.shape[1]);
-
 	// get embeddings
 	embed_t.lookup(cudnn, {input_symbol}, var1);
-
-	// log_e("embedding 1", var1.log("cpp_embedding_1.npy"));
 	
-	size_t oldSI = 0;
-	size_t newSI = 1; 
-	if(reverse)
-	{
-		oldSI = 1;
-		newSI = 0;
-	}
-
 	// run lstms
-	lstm_t(var1, state[oldSI].cell_state_h, state[oldSI].cell_state_c,
-		output, state[newSI].cell_state_h, state[newSI].cell_state_c, 
+	lstm_t(var1, state_buffer[input_state_idx].cell_state_h, state_buffer[input_state_idx].cell_state_c,
+		output, state_buffer[first_free_state_idx].cell_state_h, state_buffer[first_free_state_idx].cell_state_c, 
 		0 /*zoneout factor cell*/, 0 /*zoneout factor outputs*/, 0 /*forget bias*/);
 
-	// log_e("h input", state[oldSI].cell_state_h.log("cpp_h_input.npy"));
-	// log_e("c input", state[oldSI].cell_state_c.log("cpp_c_input.npy" /*filename of numpy file dumped*/));
-
-	// log_e("h output", state[newSI].cell_state_h.log("cpp_h_output.npy"));
-	// log_e("c output", state[newSI].cell_state_c.log("cpp_c_output.npy" /*filename of numpy file dumped*/));
-	
+	int state_return_idx;
+	if(save_state)
+	{
+		state_return_idx = first_free_state_idx;
+		state_use_count[first_free_state_idx] = 0;
+		first_free_state_idx = next_free_state[first_free_state_idx];
+	}
+	else
+	{
+		state_return_idx = -1; // return -1 if not saving the output state; useful for boosting phase; 
+	}
+	return state_return_idx; 
 }
 
 prednet::~prednet()

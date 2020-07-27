@@ -38,6 +38,7 @@ namespace s2t
 				static const size_t pred_net_state_h_size = 700;
 				static const size_t pred_net_state_c_size = 700;
 				static const size_t max_input_size = 1;
+				static const size_t gpu_states_buffer_size = 20000;
 
 			// joint network parameters
 
