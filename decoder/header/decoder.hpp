@@ -75,10 +75,12 @@ namespace s2t
             // cpu variables used while decoding
             float* log_probs;
             int zeroed_dlsm_state_idx;
+            bool boost_phase;
 
         public:
             decoder(size_t p_vocab_size, size_t p_blank_index);  
             void operator() (const string& encoder_features_file, size_t beamsize, vector<pair<string, float>>& beams_and_logprobs_out);
+            void boost_prob(data_tuple& final, data_tuple& prefix);
             ~decoder(); // free all resources
         };
     }

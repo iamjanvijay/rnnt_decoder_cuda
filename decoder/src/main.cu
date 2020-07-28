@@ -71,7 +71,7 @@ void testjointnet(cudnnHandle_t& cudnn)
 void testdecoder()
 {
 	const string encoder_features_file = hparams::base_input_folder + "encoder_features.npy";
-	size_t beamsize = 100;
+	size_t beamsize = 10;
 	size_t vocab_size = 301;
 	size_t blank_index = 300;
 	decoder decoder1(vocab_size, blank_index);
@@ -93,7 +93,7 @@ void testdecoder()
 		for(int i=0; i<beams_and_logprobs.size(); i++)
 		{
 			outfile << beams_and_logprobs[i].first << "\t";
-			outfile << fixed << setprecision(4) << beams_and_logprobs[i].second << "\n";
+			outfile << fixed << setprecision(8) << beams_and_logprobs[i].second << "\n";
 		}
 		outfile.close();
 		cout << "Finised writing output beams!" << endl;

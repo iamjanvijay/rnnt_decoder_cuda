@@ -61,6 +61,7 @@ namespace s2t
 
 				static const string subword_file = base_input_folder + "subword_list.txt";
 				static const string output_beams_logprobs_file = base_input_folder + "beam_and_logprobs.txt";
+				static const bool boost_phase = true;
 
 		}
 	}

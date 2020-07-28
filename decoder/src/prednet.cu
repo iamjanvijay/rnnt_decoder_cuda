@@ -92,7 +92,7 @@ void prednet::reuse_state(int idx)
 	++state_use_count[idx];
 }
 
-int prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, bool save_state)
+int prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, int output_state_idx)
 {
 	assert(first_free_state_idx!=hparams::gpu_states_buffer_size && "Increase DLSTM buffer state size!");
 
@@ -102,22 +102,17 @@ int prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_fl
 
 	// get embeddings
 	embed_t.lookup(cudnn, {input_symbol}, var1);
-	
-	// run lstms
+
+	int state_return_idx = (output_state_idx==-1)?first_free_state_idx:output_state_idx;
+	// run lstms	
 	lstm_t(var1, state_buffer[input_state_idx].cell_state_h, state_buffer[input_state_idx].cell_state_c,
-		output, state_buffer[first_free_state_idx].cell_state_h, state_buffer[first_free_state_idx].cell_state_c, 
+		output, state_buffer[state_return_idx].cell_state_h, state_buffer[state_return_idx].cell_state_c, 
 		0 /*zoneout factor cell*/, 0 /*zoneout factor outputs*/, 0 /*forget bias*/);
 
-	int state_return_idx;
-	if(save_state)
+	if(output_state_idx==-1) // save the state on state_return_idx
 	{
-		state_return_idx = first_free_state_idx;
-		state_use_count[first_free_state_idx] = 0;
-		first_free_state_idx = next_free_state[first_free_state_idx];
-	}
-	else
-	{
-		state_return_idx = -1; // return -1 if not saving the output state; useful for boosting phase; 
+		state_use_count[state_return_idx] = 0;
+		first_free_state_idx = next_free_state[state_return_idx];
 	}
 	return state_return_idx; 
 }

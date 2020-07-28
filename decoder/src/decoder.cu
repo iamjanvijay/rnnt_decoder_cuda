@@ -7,6 +7,7 @@
 #include<string>
 #include<fstream>
 #include<cassert>
+#include<algorithm>
 #include<utility> 
 #include<queue>
 #include<limits>
@@ -85,6 +86,35 @@ Trie::~Trie()
     }
 }
 
+// is_prefix : checks if sids_1 is a proper prefix of sids_2
+bool is_prefix(vector<size_t>& sids_1, vector<size_t>& sids_2)
+{
+    if(sids_1.size() >= sids_2.size())
+    {
+        return false;
+    }
+
+    for(int i=0; i<sids_1.size(); ++i)
+    {
+        if(sids_1[i]!=sids_2[i])
+            return false;
+    }
+    return true;
+}
+
+// sorting comparator function for boosting phase
+bool compareSIDsLengths(pair<int, int>& pair1, pair<int, int>& pair2) 
+{
+    return (pair1.second < pair2.second);
+}
+
+// log sum exp function for a pair of float values
+float logsumexp(float x, float y)
+{
+    float maxval = max(x, y);
+    return log(exp(x - maxval) + exp(y - maxval)) + maxval;
+}
+
 // decoder methods
 decoder::decoder(size_t p_vocab_size, size_t p_blank_index)
 {
@@ -127,8 +157,76 @@ decoder::decoder(size_t p_vocab_size, size_t p_blank_index)
     {
         log_probs = (float*) malloc(hparams::joint_net_logit_size * sizeof(float));
         zeroed_dlsm_state_idx = prednet1.get_zerod_state();
+        boost_phase = hparams::boost_phase;
     }
 }
+
+void decoder::boost_prob(data_tuple& final, data_tuple& prefix)
+{
+    float boost_log_prob = prefix.log_prob;
+    size_t input_symbol = prefix.last_decoded_sid;
+    int output_state_idx, input_state_idx;
+    for(int i=prefix.beam_sids.size(); i<final.beam_sids.size(); ++i)
+    {
+        size_t output_symbol = final.beam_sids[i];
+        
+        // compute log_prob
+        float log_prob;
+        {
+            if(i==prefix.beam_sids.size())
+            {
+                input_state_idx = prefix.hidden_idx;
+                output_state_idx = -1;
+            }
+            else if(i==prefix.beam_sids.size()+1)
+            {
+                input_state_idx = output_state_idx;
+                output_state_idx = -1;
+            }
+            else
+            {
+                swap(input_state_idx, output_state_idx);
+            }
+
+            // calls to jointnet and prednet
+            int return_state_idx = prednet1(cudnn, input_symbol, prednet_out, input_state_idx, output_state_idx);
+            
+            if(i<=prefix.beam_sids.size()+1)
+            {
+                output_state_idx = return_state_idx;
+                prednet1.reuse_state(output_state_idx);
+            }
+            else
+            {
+                assert(output_state_idx==return_state_idx && "output state index doesn't match return state index!");
+            }
+
+            decoder_concat<<<1, 1024>>>(700, 700, enc_pred_concated.ptr, prednet_out.ptr); 
+            jointnet1(cudnn, enc_pred_concated, jointnet_out);
+
+            // loading log_probs in float array
+            size_t log_probs_N = jointnet_out.data_at_host(&log_probs);
+            log_prob = log_probs[output_symbol];
+        }
+
+        boost_log_prob += log_prob;
+        input_symbol = output_symbol;
+    }
+
+    if(prefix.beam_sids.size()+1==final.beam_sids.size())
+    {
+        prednet1.free_state(output_state_idx);
+    }
+    else
+    {
+        prednet1.free_state(input_state_idx);
+        prednet1.free_state(output_state_idx);
+    }
+    
+    final.log_prob = logsumexp(final.log_prob, boost_log_prob);
+}
+
+
 
 void decoder::operator() (const string& encoder_features_file, size_t beamsize, vector<pair<string, float>>& beams_and_logprobs_out)
 {
@@ -153,11 +251,6 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
     {
         enc_pred_concated.copy(encoder_features.data<float_t>() + hparams::enc_net_logit_size*t, hparams::enc_net_logit_size);
 
-        // boost the probabilities in B
-        {
-
-        }
-
         // delete all for a_heap; 
         {
             for(int i=0; i<data_a.size(); ++i)
@@ -173,16 +266,36 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
 
         // put all data from b_heap in to a_heap and initialise empty b_heap;
         {
-            data_a = data_b;
-            while(b_heap.size())
+            // boost the probabilities in b_heap and push to a_heap;
             {
-                pair<float, int> log_prob_data_idx_pair = b_heap.top();
-                log_prob_data_idx_pair.first = -log_prob_data_idx_pair.first;
-                a_heap.push(log_prob_data_idx_pair);
-                b_heap.pop();
+                vector<pair<int, int>> data_b_idx_sids_len_vector;
+                while(b_heap.size())
+                {
+                    pair<float, int> log_prob_data_idx_pair = b_heap.top();
+                    data_b_idx_sids_len_vector.push_back(make_pair(log_prob_data_idx_pair.second, data_b[log_prob_data_idx_pair.second].beam_sids.size()));
+                    b_heap.pop();
+                }
+
+                sort(data_b_idx_sids_len_vector.begin(), data_b_idx_sids_len_vector.end(), compareSIDsLengths);
+
+                for(int i=0; i<data_b_idx_sids_len_vector.size(); ++i)
+                {
+                    for(int j=i-1; boost_phase && j>=0; --j)
+                    {
+                        // if data_b object at index j is a prefix of data_b object at index i;
+                        if(is_prefix(data_b[data_b_idx_sids_len_vector[j].first].beam_sids, data_b[data_b_idx_sids_len_vector[i].first].beam_sids))
+                        {
+                            boost_prob(data_b[data_b_idx_sids_len_vector[i].first], data_b[data_b_idx_sids_len_vector[j].first]);
+                            break;
+                        }
+                    }
+                    // data_b object at index i is boosted so push to a_heap;
+                    a_heap.push(make_pair(-data_b[data_b_idx_sids_len_vector[i].first].log_prob, data_b_idx_sids_len_vector[i].first));
+                }
             }
+            data_a = data_b;
             data_b.clear();
-        }
+        }    
 
         // choose the most probable for a_heap and iterate
         pair<float, int> top_log_prob_data_idx_pair = a_heap.top();

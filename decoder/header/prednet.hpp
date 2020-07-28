@@ -39,7 +39,7 @@ namespace s2t
 			void free_state(int idx);
 			void reuse_state(int idx);
 			int get_zerod_state();
-			int operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, bool save_state = true);
+			int operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, int output_state_idx = -1);
 			~prednet();  // free all resources
 		};
 	}
