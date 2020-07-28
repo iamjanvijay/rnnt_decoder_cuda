@@ -35,10 +35,10 @@ void testprednet(cudnnHandle_t& cudnn)
 	output.init(hparams::max_input_size, 700);
 	int input_state_idx = prednet1.get_zerod_state();
 	prednet1.reuse_state(input_state_idx);
-	prednet1(cudnn, input_symbol, output, input_state_idx, false /*save_state*/);	
+	prednet1(cudnn, input_symbol, output, input_state_idx);	
 	prednet1.free_state(input_state_idx);
 
-	string filename = "cpp_prednet_output.npy";
+	string filename = hparams::base_output_folder + "cpp_prednet_output.npy";
 	log_e("pred net output", output.log(filename));
 }
 
@@ -48,14 +48,10 @@ void testjointnet(cudnnHandle_t& cudnn)
 	auto decoder_features = cnpy::npy_load(hparams::joint_net_prediction_feats); 
 	encoder_features.merge(decoder_features);
 
-	cnpy::npy_save("cpp_joint_net_input_concatenated_features.npy", encoder_features.as_vec<float>());
-
 	gpu_float_array jointnet_input;
 	jointnet_input.init(encoder_features.shape);
 	cudaMemcpy(jointnet_input.ptr, encoder_features.data<float_t>(), jointnet_input.size()*sizeof(float_t), cudaMemcpyHostToDevice);
 	jointnet_input.reshape(1, 1400);
-
-	log_e("joint net gpu input", jointnet_input.log("cpp_joint_net_input_concatenated_features_gpu.npy"));
 
 	jointnet jointnet1;
 	jointnet1.init(cudnn, "");
@@ -64,14 +60,14 @@ void testjointnet(cudnnHandle_t& cudnn)
 	output.init(hparams::max_input_size, 301);
 	jointnet1(cudnn, jointnet_input, output);
 
-	string filename = "cpp_joint_net_dense_2_softmax_final.npy";
+	string filename =  hparams::base_output_folder + "cpp_joint_net_dense_2_softmax_final.npy";
 	log_e("joint net output softmax output", output.log(filename));
 }
 
 void testdecoder()
 {
 	const string encoder_features_file = hparams::base_input_folder + "encoder_features.npy";
-	size_t beamsize = 10;
+	size_t beamsize = 32;
 	size_t vocab_size = 301;
 	size_t blank_index = 300;
 	decoder decoder1(vocab_size, blank_index);

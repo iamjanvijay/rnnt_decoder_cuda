@@ -64,23 +64,11 @@ void jointnet::operator() (cudnnHandle_t& cudnn, gpu_float_array& input, gpu_flo
     // reset and reshape the Vars based on input size
 	var1.reset();
 	var1.reshape(1, var1.shape[1]);
-	// var2.reset();
-	// var2.reshape(1, var2.shape[1]);
 
 	dense_1(cudnn, input, var1);
-	// log_e("dense 1 output", var1.log("cpp_joint_net_dense_1.npy.npy"));
 	activation_t(cudnn, var1);
-	// log_e("dense 1 relu output", var1.log("cpp_joint_net_dense_1_relu.npy.npy"));
-
 	dense_2(cudnn, var1, output);
-	// log_e("dense 2 output", output.log("cpp_joint_net_dense_2.npy"));
-
-	// cout << output.shape[1] << endl;
-
 	cudnnStatus_t status = cudnnSoftmaxForward(cudnn, cudnnSoftmaxAlgorithm_t::CUDNN_SOFTMAX_LOG, cudnnSoftmaxMode_t::CUDNN_SOFTMAX_MODE_INSTANCE, &one, tExamples, output.ptr, &zero, tExamples, output.ptr);
-	
-	// cout << CUDNN_STATUS_BAD_PARAM << " " << CUDNN_STATUS_SUCCESS << " : " << status << endl;
-	// log_e("dense 2 softmax output", output.log("cpp_joint_net_dense_2_softmax.npy.npy"));
 }
 
 jointnet::~jointnet()

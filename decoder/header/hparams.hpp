@@ -14,8 +14,9 @@ namespace s2t
 		{
 			using namespace std;
 
-			static const string base_param_folder = "../weights/"; 
-			static const string base_input_folder = "./"; 
+			static const string base_param_folder = "../params/weights/"; 
+			static const string base_input_folder = "../params/inputs/";
+			static const string base_output_folder = "../params/outputs/"; 
 
 			// encoder network parameters
 			
@@ -60,7 +61,7 @@ namespace s2t
 			// decoder specific parameters
 
 				static const string subword_file = base_input_folder + "subword_list.txt";
-				static const string output_beams_logprobs_file = base_input_folder + "beam_and_logprobs.txt";
+				static const string output_beams_logprobs_file = base_output_folder + "beam_and_logprobs.txt";
 				static const bool boost_phase = true;
 
 		}
