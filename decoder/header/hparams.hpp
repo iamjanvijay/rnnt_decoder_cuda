@@ -14,9 +14,9 @@ namespace s2t
 		{
 			using namespace std;
 
-			static const string base_param_folder = "../params/weights/"; 
-			static const string base_input_folder = "../params/inputs/";
-			static const string base_output_folder = "../params/outputs/"; 
+			static const string base_param_folder = "../data/params/pred_joint_wts/"; 
+			static const string base_input_folder = "../data/inputs/";
+			static const string base_output_folder = "../data/outputs/"; 
 
 			// encoder network parameters
 			
@@ -39,7 +39,7 @@ namespace s2t
 				static const size_t pred_net_state_h_size = 700;
 				static const size_t pred_net_state_c_size = 700;
 				static const size_t max_input_size = 1;
-				static const size_t gpu_states_buffer_size = 20000;
+				static const size_t gpu_states_buffer_size = 80000;
 
 			// joint network parameters
 
@@ -56,11 +56,11 @@ namespace s2t
 				static const string joint_net_prediction_feats = base_input_folder + "py_joint_net_input_prediction_features.npy";
 			
 				// other parameters
-				static const size_t joint_net_logit_size = 301;
+				static const size_t joint_net_logit_size = 5001;
 
 			// decoder specific parameters
 
-				static const string subword_file = base_input_folder + "subword_list.txt";
+				static const string subword_file = "../data/params/vocab_list.txt";
 				static const string output_beams_logprobs_file = base_output_folder + "beam_and_logprobs.txt";
 				static const bool boost_phase = true;
 

@@ -133,6 +133,10 @@ decoder::decoder(size_t p_vocab_size, size_t p_blank_index)
             }
             subwords.close();
         }
+        else
+        {
+            cout << "Couldn't open vocabulary file!" << endl;
+        }
         subword_map.push_back(""); // appending blank symbol at last
 
         assert(vocab_size==subword_map.size() && "Number of subwords in file and vocab_size do not match!");
@@ -156,7 +160,6 @@ decoder::decoder(size_t p_vocab_size, size_t p_blank_index)
     // initialise the cpu variables
     {
         log_probs = (float*) malloc(hparams::joint_net_logit_size * sizeof(float));
-        zeroed_dlsm_state_idx = prednet1.get_zerod_state();
         boost_phase = hparams::boost_phase;
     }
 }
@@ -230,6 +233,9 @@ void decoder::boost_prob(data_tuple& final, data_tuple& prefix)
 
 void decoder::operator() (const string& encoder_features_file, size_t beamsize, vector<pair<string, float>>& beams_and_logprobs_out)
 {
+    // resetting state buffer for LSTM
+    prednet1.reset_state_buffer();
+
     auto encoder_features = cnpy::npy_load(encoder_features_file); 
     size_t acoustic_time_steps = encoder_features.shape[0]; // T * 700 file
 
@@ -242,6 +248,7 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
     priority_queue<pair<float, int>, vector<pair<float, int>>, min_first> a_heap;
 
     // initialse b_heap related data structures before t=0
+    int zeroed_dlsm_state_idx = prednet1.get_zerod_state();
     data_tuple init_data_tuple = {"", 0.f, blank_index, zeroed_dlsm_state_idx /* hidden index */, {blank_index}};
     prednet1.reuse_state(zeroed_dlsm_state_idx);
     data_b.push_back(init_data_tuple);
@@ -339,7 +346,7 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
             }     
 
             // add non-blank transition to A
-            for(int i=0; i<301; i++)
+            for(int i=0; i<vocab_size; i++)
             {
                 if(i==blank_index || top_log_prob_a+log_probs[i] <= bmszth_top_log_prob_b)
                     continue;

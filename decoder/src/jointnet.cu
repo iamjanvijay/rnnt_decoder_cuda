@@ -31,7 +31,7 @@ void jointnet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
         
 		dense_1_hidden_size = kernel_weight.shape[1]; 
 		
-		// cout << "dense_1_hidden_size: " << dense_1_hidden_size << endl;
+		cout << "JointNet Dense 1 Size: " << kernel_weight.shape[0] << " " << kernel_weight.shape[1] << endl;
 	}
 	
 	// initialise relu activation layer
@@ -47,6 +47,8 @@ void jointnet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
 		dense_2.init(kernel_weight, bias_weight);
 
 		dense_2_hidden_size = kernel_weight.shape[1]; 
+
+		cout << "JointNet Dense 2 Size: " << kernel_weight.shape[0] << " " << kernel_weight.shape[1] << endl;
 	}
 
 	// intitlaize gpu variables

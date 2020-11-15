@@ -67,7 +67,7 @@ void testjointnet(cudnnHandle_t& cudnn)
 void testdecoder()
 {
 	const string encoder_features_file = hparams::base_input_folder + "encoder_features.npy";
-	size_t beamsize = 32;
+	size_t beamsize = 1000;
 	size_t vocab_size = 301;
 	size_t blank_index = 300;
 	decoder decoder1(vocab_size, blank_index);
@@ -100,7 +100,70 @@ void testdecoder()
 	}
 }
 
-int main()
+void decodemultiple(string metadata_path, int begin_index, int end_index, size_t beamsize, size_t vocab_size)
+{
+	// size_t beamsize = 100;
+	// size_t vocab_size = 5001;
+	size_t blank_index = vocab_size-1;	
+
+	cout << "Vocab Size: " << vocab_size << endl;
+	cout << "Blank Index: " << blank_index << endl;
+
+	string encoder_features_file;
+	decoder decoder1(vocab_size, blank_index);
+
+	auto total_time = 0.0;
+	int count = 0;
+	ifstream metadata(metadata_path);
+	if(metadata.is_open())
+	{
+		while(getline(metadata, encoder_features_file))
+		{
+			if(count<begin_index || count>end_index)
+			{
+				++count;
+				continue;
+			}
+
+			string encoder_features_file_path = "../data/inputs/" + encoder_features_file;
+			string output_beams_logprobs_file = "../data/outputs/" + encoder_features_file + ".txt";
+			// cout << encoder_features_file_path << " Input file!" << endl;
+			// cout << output_beams_logprobs_file << " Output file!" << endl;
+			vector<pair<string, float>> beams_and_logprobs;
+
+			auto time_start = high_resolution_clock::now();
+			decoder1(encoder_features_file_path, beamsize, beams_and_logprobs); 
+			auto time_stop = high_resolution_clock::now(); 
+			auto time_duration = duration_cast<milliseconds>(time_stop - time_start); 
+			total_time += time_duration.count();
+			// cout << "TIME ELAPSED IN DECODING (" << count << "): " << time_duration.count() << endl; 
+
+			ofstream outfile(output_beams_logprobs_file);
+			if (outfile.is_open())
+			{
+				for(int i=int(beams_and_logprobs.size())-1; i>=0; i--)
+				{
+					outfile << beams_and_logprobs[i].first << "\t";
+					outfile << fixed << setprecision(16) << beams_and_logprobs[i].second << "\n";
+				}
+				outfile.close();
+				++count;
+			}
+			else
+			{
+				cout << "Couldn't open output file!\n";
+			}
+		}
+		metadata.close();
+	}
+	else
+	{
+		cout << "Couldn't open metadata file!\n";
+	}
+	cout << "Average time for decoding: " << total_time / (end_index-begin_index+1) << endl;
+}
+
+int main(int argc, char *argv[])
 {
 	// create a cuda handle
 	cudnnHandle_t cudnn;
@@ -108,8 +171,14 @@ int main()
 
 	// testprednet(cudnn);
 	// testjointnet(cudnn);
-	testdecoder();
+	// testdecoder();
 
+	assert(argc==6 && "pararm 1: path to metadata; pararm 2: begin_index; pararm 3: end_index; param 4: beamsize; param 5 vocabsize;");
+	string metadata_path = argv[1]; 
+	int begin_index = stoi(argv[2]), end_index = stoi(argv[3]);
+	size_t beamsize = stoi(argv[4]), vocab_size = stoi(argv[5]); // vocab size 301 or 5001
+	cout << "Loading weights from: " << s2t::decodernet::hparams::base_param_folder << "\n";
+	decodemultiple(metadata_path, begin_index, end_index, beamsize, vocab_size);
 	cudnnDestroy(cudnn);
 	return 0;
 }

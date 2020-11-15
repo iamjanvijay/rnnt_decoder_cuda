@@ -74,7 +74,6 @@ namespace s2t
 
             // cpu variables used while decoding
             float* log_probs;
-            int zeroed_dlsm_state_idx;
             bool boost_phase;
 
         public:

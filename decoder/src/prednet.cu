@@ -27,6 +27,7 @@ void prednet::init(cudnnHandle_t& cudnn, const std::string& base_model_path)
 		auto arr = cnpy::npy_load(hparams::pred_net_embedding);
 		embed_t.init(arr);
 		embedding_sz = arr.shape[1];
+		cout << "PredNet Emdedding Size: " << arr.shape[0] << " " << arr.shape[1] << endl;
 	}
 
 	size_t lstm_input_size = embedding_sz;
@@ -90,6 +91,15 @@ void prednet::free_state(int idx)
 void prednet::reuse_state(int idx)
 {
 	++state_use_count[idx];
+}
+
+void prednet::reset_state_buffer()
+{
+	for(size_t i=0; i<hparams::gpu_states_buffer_size; ++i)
+	{
+		next_free_state[i] = i+1;
+	}
+	first_free_state_idx = 0;
 }
 
 int prednet::operator() (cudnnHandle_t& cudnn, const size_t input_symbol, gpu_float_array& output, int input_state_idx, int output_state_idx)
