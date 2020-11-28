@@ -63,6 +63,7 @@ namespace s2t
 				static const string subword_file = "../data/params/vocab_list.txt";
 				static const string output_beams_logprobs_file = base_output_folder + "beam_and_logprobs.txt";
 				static const bool boost_phase = true;
+				static const float prune_log_prob = -11.512925464970229; // = log(1e-5)
 
 		}
 	}

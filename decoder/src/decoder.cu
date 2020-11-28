@@ -348,7 +348,7 @@ void decoder::operator() (const string& encoder_features_file, size_t beamsize, 
             // add non-blank transition to A
             for(int i=0; i<vocab_size; i++)
             {
-                if(i==blank_index || top_log_prob_a+log_probs[i] <= bmszth_top_log_prob_b)
+                if(i == blank_index || top_log_prob_a+log_probs[i] <= bmszth_top_log_prob_b || log_probs[i] < hparams::prune_log_prob)
                     continue;
 
                 data_tuple next_data_tuple = {data_a[top_id_data_a].beam_string + subword_map[i], top_log_prob_a + log_probs[i], size_t(i), output_state_idx, data_a[top_id_data_a].beam_sids};
