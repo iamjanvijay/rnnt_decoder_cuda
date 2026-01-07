@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES=$GPU_ID$ ./decoder ../data/inputs/metadata.txt $index_of_fi
 If you use this code in your research, please cite:
 
 ```bibtex
-@article{singh2020rnnt,
+@article{singh2020rnnt-beamsearch,
   title        = {RNN-Transducer Prefix Beam Search},
   author       = {Singh, Janvijay},
   year         = {2020},
