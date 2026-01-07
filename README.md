@@ -32,6 +32,15 @@ CUDA_VISIBLE_DEVICES=0 ./decoder ../data/inputs/metadata.txt 0 9 10 5001;
 CUDA_VISIBLE_DEVICES=$GPU_ID$ ./decoder ../data/inputs/metadata.txt $index_of_first_file_to_read_from_metadata$ $index_of_last_file_to read_from_metadata$ $beam_size$ $vocabulary_size_excluding_blank$;
 ```
 
-## Contributing
+## Citation
 
-Contributions are welcomed and greatly appreciated.
+If you use this code in your research, please cite:
+
+```bibtex
+@article{singh2020rnnt,
+  title        = {RNN-Transducer Prefix Beam Search},
+  author       = {Singh, Janvijay},
+  year         = {2020},
+  archivePrefix = {arXiv}
+}
+```
